@@ -2,15 +2,15 @@
 title: "Duration of and time to response in oncology clinical trials from the perspective of the estimand framework"
 subtitle: "Code accompanying the paper: Case Study in Mantel Cell Lymphoma (Section 4)"
 author: "Hans-Jochen Weber"
-date: "Last change: `r format(Sys.time(), '%d %B, %Y')`"
-output: 
-  rmarkdown::html_document:
-    highlight: pygments
-    number_sections: yes
-    self_contained: yes
-    toc: yes
-    toc_depth: 3
-    toc_float: yes
+date: 'Last modification: `r Sys.setlocale("LC_TIME", "C"); format(Sys.Date(), "%d %b %Y")`'
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    toc-title: Contents
+    toc-location: left
+    number-sections: true
+    number-depth: 2
 bibliography: stat.bib
 ---
 
@@ -30,8 +30,9 @@ This R markdown file provides easy accessible code to reproduce computations in 
 # --------------------------------------------------------------
 # Packages
 # --------------------------------------------------------------
-packages <- c("gtsummary", "survival", "cmprsk", "survminer", "msm", "mstate", "tidyverse",
-            "gt", "survRM2", "PBIR", "labelled", "swimplot", "ggplot2")
+packages <- c("gtsummary", "survival", "cmprsk", "survminer", "msm", 
+              "mstate", "tidyverse", "gt", "survRM2", "PBIR", 
+              "labelled", "swimplot", "ggplot2")
 
 for (i in 1:length(packages)){library(packages[i], character.only = TRUE)}
 ```
@@ -147,10 +148,12 @@ for(i in 1:n){
 } 
 
 # TTR: Time to response. 
-# For patients with OR use date of first assessment with OR (response event) 
-# For patients with no OR nor PD use last assessment (censored, could get response 
-# if further assessments taken). 
-# For patients with no OR and a PD use last assessment (censored, competing risk PD).
+# - For patients with OR use date of first assessment 
+# with OR (response event) 
+# - For patients with no OR nor PD use last assessment 
+# (censored, could get response if further assessments taken). 
+# - For patients with no OR and a PD use last assessment 
+# (censored, competing risk PD).
 
 ttr <- numeric(n)
 for(i in 1:n){
@@ -162,8 +165,8 @@ for(i in 1:n){
 
 # DOR: Duration of response
 # For patients with no response: 0
-# For patients with response and no PD: Date of last assessment - Date of 
-# response (censored).
+# For patients with response and no PD: Date of last assessment - 
+# Date of response (censored).
 # For patients with response and PD: 
 # Date of last assessment - Date of response (event) 
 
@@ -173,21 +176,24 @@ dor <- ifelse(or, last - ttr, 0)
 tir.status <- ifelse(noor.orpd, 1, 0)
 tir.status <- ifelse(or.pd, 1, tir.status)
 
-# For competing risks: TTR status 1 = OR, 2 = no OR but PD, 0 = no OR, no PD
+# For competing risks: TTR status 1 = OR, 2 = no OR but PD, 
+# 0 = no OR, no PD
 ttr.status <- ifelse(or, 1, 0)
 ttr.status[!or & noor.pd] <- 2
 
 # TTP: Time to progression (equivalent to PFS in this dataset)
-# For patients with PD based on PD assessment date (=event)
-# For patients without PD based on last assessment date (=censored)
-# Note that in this data set, if PD occurs, it is at the last assessment date.
+# For patients with PD based on PD assessment date (= event)
+# For patients without PD based on last assessment date (= censored)
+# Note that in this data set, if PD occurs, it is at the 
+#   last assessment date.
 # Note that in this data set there are no deaths.
 # Therefore in this data set, ttp = pfs = last assessment
 
 ttp.status <- ifelse(any.pd, 1, 0)
 ttp <- last
 
-# Use last observed follow-up as date of TTR if progression (Table 3, estimand 2)
+# Use last observed follow-up as date of TTR if progression 
+# (Table 3, estimand 2)
 sttr <- ifelse(any.pd == 1 & or == 0, max(ttp), ttr)
 
 # TTP censored at response
@@ -195,8 +201,9 @@ sttr <- ifelse(any.pd == 1 & or == 0, max(ttp), ttr)
 # For all other patients: last
 ttp.cens <- ifelse(or, ttr, last)
 
-data.ext <- cbind(dat, bor, or, any.pd, or.pd, noor.pd, noor.orpd, last, 
-                  ttr, sttr, dor, ttp, ttp.status, ttp.cens, tir.status)
+data.ext <- cbind(dat, bor, or, any.pd, or.pd, noor.pd, 
+                  noor.orpd, last, ttr, sttr, dor, ttp, 
+                  ttp.status, ttp.cens, tir.status)
 ```
 
 # BOR and ORR
@@ -335,7 +342,8 @@ mduration(t2PROGRESSION = months(data.ext$ttp),
 data.res <- subset(data.ext, data.ext$or == 1)
 
 # or = event indicator, TRUE (1) = event
-fit_cTTR <- survfit(Surv(months(data.res$ttr), data.res$or) ~ 1, data = data.res) 
+fit_cTTR <- survfit(Surv(months(data.res$ttr), data.res$or) ~ 1, 
+                    data = data.res) 
 
 # Table 5, row 5
 surv_median(fit_cTTR)
@@ -399,10 +407,11 @@ c("response (95% CI):", 1 - round(c(z6$est[1], z6cil[1], z6ciu[1]), 3))
 
 # CIF plot
 cif <- ggcompetingrisks(fit_CIF, conf.int = FALSE, multiple_panels = FALSE,
-                 title = "Time to response (CIF, all patients)", palette = "jco",
-                 xlab = "Months from start of treatment")
+                 title = "Time to response (CIF, all patients)", 
+                 palette = "jco", xlab = "Months from start of treatment")
 cif2 <- cif + scale_color_manual(name = "Event", values = c(1, 2),
-                                labels = c("Response", "Progression without response"))
+                                labels = c("Response", 
+                                           "Progression without response"))
 ggpar(cif2, xlim = c(0, 9.5), xticks.by = 1)
 ```
 
@@ -424,8 +433,9 @@ data.ext$Progression <- ifelse(data.ext$any.pd == TRUE, "Progression", NA)
 follow_p <- swimmer_plot(df = data.ext, id = 'ID', end = 'last', width = .85, 
                          name_fill = 'bor')
 
-resp <- follow_p + swimmer_lines(df_lines = data.ext, id = 'ID', start = 'ttr',
-                                 end = 'ttp', size = 1, col = c("black"))  +
+resp <- follow_p + swimmer_lines(df_lines = data.ext, id = 'ID', 
+                                 start = 'ttr', end = 'ttp', size = 1, 
+                                 col = c("black"))  +
   
   swimmer_points(df_points=data.ext, id = 'ID', time = 'prog', size = 2.5,
                  fill = 'white', col = 'black', name_shape = "Progression") +
