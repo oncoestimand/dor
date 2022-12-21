@@ -1,0 +1,22 @@
+% Encoding: UTF-8
+
+@misc{rufibach_22,
+  doi = {10.48550/arxiv.2206.05216},
+  url = {https://arxiv.org/abs/2206.05216},
+  author = {Rufibach, Kaspar and Grinsted, Lynda and Li, Jiang and Weber, Hans-Jochen and Zheng, Cheng and Zhou, Jiangxiu},
+  title = {Quantification of follow-up time in oncology clinical trials with a time-to-event endpoint: Asking the right questions},
+  publisher = {arXiv},
+  year = {2022},
+  copyright = {Creative Commons Attribution 4.0 International}
+}
+
+
+  @Manual{rpact,
+    title = {rpact: Confirmatory Adaptive Clinical Trial Design and Analysis},
+    author = {Gernot Wassmer and Friedrich Pahlke},
+    year = {2021},
+    note = {R package version 3.1.1},
+    url = {https://CRAN.R-project.org/package=rpact},
+  }
+  
+@Comment{jabref-meta: databaseType:bibtex;}
