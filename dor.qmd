@@ -37,7 +37,7 @@ packages <- c("gtsummary", "survival", "cmprsk", "survminer", "msm",
 for (i in 1:length(packages)){library(packages[i], character.only = TRUE)}
 ```
 
-## 2.2 Get data
+## Get data
 
 The source data provide the response status at time points $C_2, \ldots, C_{22}$. The data set has no deaths. For assessing time to response (TTR), duration of response (DOR), or overall response rate (ORR) deaths are handled in the same way as progression. The dataset also has no data on intercurrent events such as e.g. start of new therapy. Thus, we assume none occurred. A treatment cycle has 28 days.
 
@@ -415,7 +415,7 @@ cif2 <- cif + scale_color_manual(name = "Event", values = c(1, 2),
 ggpar(cif2, xlim = c(0, 9.5), xticks.by = 1)
 ```
 
-# 6 Swimmer plot
+# Swimmer plot
 
 ```{r, swimmer_plot, message = FALSE, warning = FALSE}
 # --------------------------------------------------------------
