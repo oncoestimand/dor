@@ -1,6 +1,6 @@
 ---
 title: "Duration of and time to response in oncology clinical trials from the perspective of the estimand framework"
-subtitle: "Code accompanying the paper: Case Study in Mantle Cell Lymphoma"
+subtitle: "Code accompanying the paper: Case Study in Mantle Cell Lymphoma (Section 4)"
 author: "Hans-Jochen Weber"
 date: 'Last modification: `r Sys.setlocale("LC_TIME", "C"); format(Sys.Date(), "%d %b %Y")`'
 format:
@@ -30,9 +30,9 @@ This R markdown file provides easy accessible code to reproduce computations in 
 # --------------------------------------------------------------
 # Packages
 # --------------------------------------------------------------
-packages <- c("gtsummary", "survival", "cmprsk", "survminer", "msm", 
-              "mstate", "tidyverse", "gt", "survRM2", "PBIR", 
-              "labelled", "swimplot", "ggplot2")
+packages <- c("survival", "cmprsk", "survminer", "msm", "mstate", 
+              "tidyverse","Hmisc", "gt", "survRM2", "PBIR", 
+              "gtsummary", "labelled", "swimplot", "ggplot2")
 
 for (i in 1:length(packages)){library(packages[i], character.only = TRUE)}
 ```
@@ -45,9 +45,27 @@ The source data provide the response status at time points $C_2, \ldots, C_{22}$
 # --------------------------------------------------------------
 # Data
 # --------------------------------------------------------------
-dat <- read_csv("dor.csv", show_col_types = FALSE)
+
+# Reading response assessments
+dat <- read_csv("Case_study.csv", show_col_types = FALSE)
+
+# Reading start of new therapies
+# New antineoplastic therapies are not recorded after documentation of progression.
+# After start of new antineoplastic therapies no response assessment is performed.
+anp <- read_csv("Case_study_ANP.csv", show_col_types = FALSE)
+
+# Source data
 gt(dat) %>% 
   tab_header(title = "Listing: Responses by cycle") %>%
+  tab_style(
+    style = list(cell_text(weight = "bold")),
+    locations = cells_title()) %>%
+  tab_style(
+    style = list(cell_text(weight = "bold")),
+    locations = cells_column_labels())
+
+gt(anp) %>% 
+  tab_header(title = "Listing: Start of new therapies") %>%
   tab_style(
     style = list(cell_text(weight = "bold")),
     locations = cells_title()) %>%
@@ -65,22 +83,38 @@ gt(dat) %>%
 
 # Don't need Patient ID column
 data <- dat[, -1]
+anpa <- anp[, -1]
 
-# Time of assessment in Cycles, Days, Months
+# Time of assessment in Cycles
 cycles <- as.numeric(sub('.', '', colnames(data))) 
 
 # cycle duration in days
 cycle.duration <- 28 
 
-days <- function(x){
-  x * cycle.duration
+n <- dim(data)[1]
+
+# data for ignoring responses after start of new therapies
+# Start of new therapies?
+Any.anp <- function(x){
+  # x: data matrix
+  ifelse(any(x == "ANP", na.rm=TRUE), TRUE, FALSE)
 }
-days.per.month <- 365.25 / 12
-months <- function(x){
-  days(x) / days.per.month
+any.anp <- apply(anp, 1, Any.anp)
+
+anpr <- numeric(n)
+for(i in 1:n){
+  if(any.anp[i]){
+    anpr[i] <- min(which(anpa[i, ] %in% c("ANP"))) }
+  else{
+    anpr[i] <- c(NA)}
 }
 
-n <- dim(data)[1]
+datax<-data
+m<-length(data)
+for(i in 1:n){
+  for (ii in 1:m){
+  datax[i, ii] <- ifelse(!is.na(anpr[i]) & anpr[i] <= ii,NA,data[i, ii])
+}}
 ```
 
 ## Endpoint derivations
@@ -108,7 +142,7 @@ BOR <- function(x){
     else{
       if(any(x == "SD", na.rm = TRUE)){out <- "SD"}
       else{
-        out<-"PD"
+        out <- "PD"
       }
     }
   }
@@ -124,10 +158,24 @@ OR <- function(x){
 
 or <- OR(bor)
 
+# TTANP
+# Time when ANP is given the first time
+ttanp <- numeric(n)
+for(i in 1:n){
+  if(any.anp[i]){
+    ttanp[i] <- cycles[anpa[i, ] %in% c("ANP")] }
+  else {
+    ttanp[i] <- NA}
+}
+
+# For displaying ANP we move the time right after the last response assessment
+# depending on the visit schedule
+ttanp.disp <- ifelse(ttanp <= 10, ttanp - 2, ttanp - 3)
+
 # Any assessment with PD?
 Any.PD <- function(x){
   # x: data matrix
-  ifelse(any(x == "PD",na.rm = TRUE), TRUE, FALSE)
+  ifelse(any(x == "PD", na.rm = TRUE), TRUE, FALSE)
 }
 
 any.pd <- apply(data, 1, Any.PD)
@@ -142,68 +190,87 @@ noor.pd <- ifelse(or == FALSE & any.pd, TRUE, FALSE)
 noor.orpd <- ifelse(or == FALSE | any.pd, TRUE, FALSE)
 
 # Last assessment in study (cycle number)
+# last = last assessment regardless of ANP
 last <- numeric(n)
 for(i in 1:n){
-  last[i] <- cycles[length(data[i, which(!is.na(data[i, ]))]) ]   
+  last[i] <- cycles[length(data[i, which(!is.na(data[i,]))])]   
+} 
+
+# last.anp = last assessment prior to start of new therapies
+last.anp <- numeric(n)
+for(i in 1:n){
+  last.anp[i] <- cycles[length(datax[i, which(!is.na(datax[i,]))])]   
 } 
 
 # TTR: Time to response. 
-# - For patients with OR use date of first assessment 
-# with OR (response event) 
-# - For patients with no OR nor PD use last assessment 
-# (censored, could get response if further assessments taken). 
-# - For patients with no OR and a PD use last assessment 
-# (censored, competing risk PD).
+# For patients with OR use date of first assessment with OR (response event) 
+# For patients with no OR nor PD use last assessment (censored) 
+# For patients with no OR and a PD use last assessment (censored, competing risk PD).
 
 ttr <- numeric(n)
 for(i in 1:n){
   if(or[i]){
-    ttr[i] <- cycles[min(which(data[i, ] %in% c("CR", "PR")))] }
+    ttr[i] <- cycles[min(which(data[i, ] %in% c("CR", "PR")))]}
   else{
     ttr[i] <- last[i]}
 }
 
 # DOR: Duration of response
 # For patients with no response: 0
-# For patients with response and no PD: Date of last assessment - 
-# Date of response (censored).
+# For patients with response and no PD: Date of last assessment - Date of 
+# response (censored).
 # For patients with response and PD: 
 # Date of last assessment - Date of response (event) 
 
 dor <- ifelse(or, last - ttr, 0)
 
+# DOR: ANP
+dor.anp <- ifelse(or, last.anp - ttr, 0)
+
 # For time in response: status
 tir.status <- ifelse(noor.orpd, 1, 0)
 tir.status <- ifelse(or.pd, 1, tir.status)
 
-# For competing risks: TTR status 1 = OR, 2 = no OR but PD, 
-# 0 = no OR, no PD
+# For competing risks: TTR status 1 = OR, 2 = no OR but PD, 0 = no OR, no PD
 ttr.status <- ifelse(or, 1, 0)
 ttr.status[!or & noor.pd] <- 2
 
 # TTP: Time to progression (equivalent to PFS in this dataset)
-# For patients with PD based on PD assessment date (= event)
-# For patients without PD based on last assessment date (= censored)
-# Note that in this data set, if PD occurs, it is at the 
-#   last assessment date.
+# For patients with PD based on PD assessment date (=event)
+# For patients without PD based on last assessment date (=censored)
+# Note that in this data set, if PD occurs, it is at the last assessment date.
 # Note that in this data set there are no deaths.
 # Therefore in this data set, ttp = pfs = last assessment
 
 ttp.status <- ifelse(any.pd, 1, 0)
 ttp <- last
+ttp.anp <- last.anp
 
-# Use last observed follow-up as date of TTR if progression 
-# (Table 3, estimand 2)
+# Use last observed follow-up as date of TTR if progression (Table 3, estimand 2)
 sttr <- ifelse(any.pd == 1 & or == 0, max(ttp), ttr)
+sttr.anp <- ifelse(any.pd == 1 & or == 0, max(ttp.anp), ttr)
 
 # TTP censored at response
 # For patients with OR: response date
 # For all other patients: last
 ttp.cens <- ifelse(or, ttr, last)
 
-data.ext <- cbind(dat, bor, or, any.pd, or.pd, noor.pd, 
-                  noor.orpd, last, ttr, sttr, dor, ttp, 
-                  ttp.status, ttp.cens, tir.status)
+# Progression at study end
+prog <- ifelse(any.pd == TRUE, ttp, NA)
+prog.anp <- ifelse(any.pd == TRUE, ttp, NA) # no patient with both PD and ANP
+
+Progression <- ifelse(any.pd == TRUE, "Progression", NA)
+ANP <- ifelse(any.anp == TRUE, "ANP", NA)
+
+# Progression, death, ANP or response events
+EoFUP <- ifelse(!is.na(Progression), Progression, ANP)
+EoFUP.time <- ifelse(!is.na(prog), prog, ttanp.disp)
+data.ext <- cbind(dat, bor, or, any.pd, or.pd, noor.pd, noor.orpd, last,  
+                  ttr, sttr, dor, ttp, ttp.status, ttp.cens, tir.status, 
+                  any.anp, ttanp, ttanp.disp, prog, Progression, ANP, EoFUP,EoFUP.time)
+data.anp.ext <- cbind(data.frame(dat[,1]), data.frame(datax), bor, or, any.pd, or.pd, noor.pd, noor.orpd, last.anp, 
+                  ttr, sttr.anp, dor.anp, ttp.anp, ttp.status, ttp.cens, tir.status, 
+                  any.anp, ttanp, ttanp.disp, prog.anp, Progression, ANP, EoFUP, EoFUP.time)
 ```
 
 # BOR and ORR
@@ -216,80 +283,144 @@ Consider any best response of PR or CR.
 # --------------------------------------------------------------
 rr <- data.ext %>% 
       select(or)
-r <- rr %>% 
-     tbl_summary(label = or ~ "Best overall response",
+
+orr <- rr %>% 
+     tbl_summary(label = or ~ "Overall response rate",
                  digits = list(all_categorical() ~ c(0, 1)))
-as_gt(r)
+
+as_gt(orr)
 ```
 
 # Duration of response 
 
 ## Conditional cDOR (KM analysis, responders only)
 
-```{r, cDOR}
+```{r, cDOR1a, message=FALSE}
 # --------------------------------------------------------------
 # Conditional duration of response
 # --------------------------------------------------------------
 
-# responders only
-data.lim <- subset(data.ext, or == TRUE) 
+# Estimand 1a (KM estimate)
+data.lim <- subset(data.anp.ext, or == TRUE) # responders only
 
-# or.pd = event indicator, TRUE (1) = event
-fit_cDOR <- survfit(Surv(months(dor), or.pd) ~ 1, data = data.lim) 
+# EoFUP=event indicator, TRUE (1) = event
+fit_cDOR1 <- survfit(Surv(dor.anp, !is.na(EoFUP)) ~ 1, data = data.lim) 
 
 # Figure 2
-ggsurvplot(fit_cDOR, data = data.lim, risk.table = TRUE, conf.int = F,
-           title = "Conditional duration of Response (responders only)", 
+ggsurvplot(fit_cDOR1, data = data.lim, risk.table = TRUE, conf.int = F,
+           title = "Conditional DOR (responders only, hypothetical strategy for ANP)", 
            submain = "Kaplan-Meier estimates", 
            break.x.by = 3,
            ylab = "Prob(progression or death)",
-           xlab = "Months from start of treatment",
+           xlab = "Months from onset of response",
            legend.title = "")
 ```
 
-```{r, cDOR_KM_estimates, message = FALSE}
-# Table 4, row 1
-as_gt(tbl_survfit(fit_cDOR, times = months(c(6, 9, 12))))
+```{r, cDOR1_KM_estimates, message = FALSE}
+
+# KM estimates
+as_gt(tbl_survfit(fit_cDOR1, times = c(6, 9, 12), label_header = "**Month {time}**"))
 ```
 
-## Time in response (EMA definition, all patients)
+```{r, cDOR1b}
 
-```{r, Time_in_response}
-# --------------------------------------------------------------
-# Time in response (all patients): EMA definition
-# --------------------------------------------------------------
+# Estimand 1b (Proportion of pts in response at time points of interest)
 
-# tir.status = event indicator, TRUE (1) = event
-fit_DOR <- survfit(Surv(months(dor), tir.status) ~ 1, data = data.ext) 
+data.lim <- subset(data.anp.ext, or == TRUE) # responders only
+data.lim$dor6 <- ifelse(data.lim$dor.anp >= 6, 1, 0)
+data.lim$dor9 <- ifelse(data.lim$dor.anp >= 9, 1, 0)
+data.lim$dor12 <- ifelse(data.lim$dor.anp >= 12, 1, 0)
 
-ggsurvplot(fit_DOR, data = data.ext, risk.table = TRUE, conf.int = F,
-           title = "Time in Response (EMA definition, all patients)", 
+rr <- data.lim %>% 
+      select(dor6, dor9, dor12)
+
+r <- rr %>% 
+     tbl_summary(label = list(dor6 ~ "Proportion of patients in DOR at Month 6",
+                 dor9 ~ "Proportion of patients in DOR at Month 9",
+                 dor12 ~ "Proportion of patients in DOR at Month 12"),
+                 digits = list(all_categorical() ~ c(0, 1)))  %>%
+     add_ci(pattern = "{stat} ({ci})",
+            method = list(dor6 ~ "exact", dor9 ~ "exact", dor12 ~ "exact"))
+r
+```
+
+```{r, cDOR2a, message = FALSE}
+# Estimand 2a
+data.lim <- subset(data.ext, or == TRUE) # responders only
+
+# or.pd=event indicator, TRUE (1) = event
+fit_cDOR2 <- survfit(Surv(dor, or.pd) ~ 1, data = data.lim) 
+
+# Figure 2
+ggsurvplot(fit_cDOR2, data = data.lim, risk.table = TRUE, conf.int = F,
+           title = "Conditional DOR (responders only, treatment policy)", 
            submain = "Kaplan-Meier estimates", 
            break.x.by = 3,
-           xlab = "Months from start of treatment",
+           ylab = "Prob(progression or death)",
+           xlab = "Months from onset of response",
            legend.title = "")
 ```
 
-```{r, Time_in_response_KM_estimates, message = FALSE}
-# Table 4, row 2
-as_gt(tbl_survfit(fit_DOR, times = months(c(6, 9, 12))))
+```{r, cDOR2_KM_estimates, message = FALSE}
+as_gt(tbl_survfit(fit_cDOR2, times = c(6, 9, 12), label_header = "**Month {time}**"))
+```
+
+```{r, cDOR2b}
+# Estimand 2b (Proportion of pts in response at time points of interest)
+data.lim <- subset(data.ext, or == TRUE) # responders only
+data.lim$dor6 <- ifelse(data.lim$dor >= 6, 1, 0)
+data.lim$dor9 <- ifelse(data.lim$dor >= 9, 1, 0)
+data.lim$dor12 <- ifelse(data.lim$dor >= 12, 1, 0)
+
+rr <- data.lim %>% 
+      select(dor6, dor9, dor12)
+
+r <- rr %>% 
+     tbl_summary(label = list(dor6 ~ "Proportion of patients in DOR at Month 6",
+                 dor9 ~ "Proportion of patients in DOR at Month 9",
+                 dor12 ~ "Proportion of patients in DOR at Month 12"),
+                 digits = list(all_categorical() ~ c(0, 1)))  %>%
+     add_ci(pattern = "{stat} ({ci})",
+            method = list(dor6 ~ "exact", dor9 ~ "exact", dor12 ~ "exact"))
+r
+```
+
+```{r, cDOR3, message = FALSE}
+# Estimand 3
+
+# Analysis of DOR while-not-using-ANP (All patients, competing risks analysis)
+
+# For competing risks: DOR3 status 1=PD, 2=no PD but ANP, 0=no PD, no ANP
+DOR3.status <- ifelse(any.pd, 1, 0)
+DOR3.status[!any.pd & !any.anp] <- 2
+
+fit1 <- cmprsk::cuminc(ftime = dor.anp,fstatus = DOR3.status)
+z<-timepoints(fit1,times = c(6, 9, 12))
+zcil<-z$est - sqrt(z$var) * (-qnorm(.025))
+zciu<-z$est + sqrt(z$var) * (-qnorm(.025))
+c("response (95% CI):", 1 - round(c(z$est[1], zcil[1], zciu[1]), 3))
+
+ggcompetingrisks(fit1, conf.int = FALSE, multiple_panels = FALSE,
+                 xlab=c("Months from onset of response"))
 ```
 
 ## Probability of being in response (all patients)
 
-```{r, PBIR}
+```{r, PBIR, message=FALSE}
+# Estimand 4
+
 # --------------------------------------------------------------
 # Probability of being in response [months] (PBIR package)
 # --------------------------------------------------------------
-fit_PBIR<-PBIR1(t2PROGRESSION = months(data.ext$ttp),
+fit_PBIR <- PBIR1(t2PROGRESSION = data.ext$ttp,
                 STATUS_PROGRESSION = data.ext$any.pd,
-                t2RESPONSE = months(data.ext$ttr),
+                t2RESPONSE = data.ext$ttr,
                 STATUS_RESPONSE = data.ext$or,
-                time = months(c(1:10)))
+                time = c(6, 9))
 
 # Table 4, row 3
 fit_PBIR %>% 
-  gt()  %>% 
+  gt() %>% 
   fmt_number(decimals = 2, columns = c(time, PBIR, std, ci.low, ci.up)) %>%
    tab_style(
     style = list(cell_text(weight = "bold")),
@@ -297,9 +428,9 @@ fit_PBIR %>%
 ```
 
 ```{r, PBIR_plot}
-fit_PBIR_pl<-PBIR1(t2PROGRESSION = months(data.ext$ttp),
+fit_PBIR_pl <- PBIR1(t2PROGRESSION = data.ext$ttp,
                    STATUS_PROGRESSION = data.ext$or.pd ,
-                   t2RESPONSE = months(data.ext$ttr),
+                   t2RESPONSE = data.ext$ttr,
                    STATUS_RESPONSE = data.ext$or)
 
 tt   <- fit_PBIR_pl$time
@@ -314,21 +445,49 @@ diff <- rep(diff, rep(2, B))[-(2 * B)]
 plot(range(c(0, max(tt))), range(c(0, 1)), 
      xlab = "Months from start of treatment", ylab = "PBIR",
      lwd = 2, type = "n", main = "Probability of being in response (PIBR)")
+
 lines(tt, diff, lwd = 2, col = 3)
 ```
 
 ## Mean duration of response (all patients)
 
 ```{r, mean_DOR, message = FALSE, warning = FALSE}
+
 # --------------------------------------------------------------
 # Mean duration of response [months] (PBIR package)
 # --------------------------------------------------------------
 
 # Table 4, row 4
-mduration(t2PROGRESSION = months(data.ext$ttp),
-          STATUS_PROGRESSION = data.ext$any.pd,
-          t2RESPONSE = months(data.ext$ttr), 
-          STATUS_RESPONSE = data.ext$or)
+mduration(t2PROGRESSION = data.ext$ttp,
+          STATUS_PROGRESSION = as.numeric(data.ext$any.pd),
+          t2RESPONSE = data.ext$ttr, 
+          STATUS_RESPONSE = as.numeric(data.ext$or))
+
+```
+
+## Time in response (EMA definition, all patients)
+
+```{r, Time_in_response, message = FALSE}
+
+# --------------------------------------------------------------
+# Time in response (all patients): EMA definition
+# --------------------------------------------------------------
+
+# Estimand 5
+
+# tir.status = event indicator, TRUE (1) = event
+fit_DOR <- survfit(Surv(dor, tir.status) ~ 1, data = data.ext) 
+
+ggsurvplot(fit_DOR, data = data.ext, risk.table = TRUE, conf.int = F,
+           title = "Time in Response (EMA definition, all patients)", 
+           submain = "Kaplan-Meier estimates", 
+           break.x.by = 3,
+           xlab = "Months from onset of response",
+           legend.title = "")
+```
+
+```{r, Time_in_response_KM_estimates, message = FALSE}
+as_gt(tbl_survfit(fit_DOR, times = c(6, 9, 12), label_header = "**Month {time}**"))
 ```
 
 # Time to Response
@@ -339,16 +498,15 @@ mduration(t2PROGRESSION = months(data.ext$ttp),
 # --------------------------------------------------------------
 # Conditional TTR
 # --------------------------------------------------------------
-data.res <- subset(data.ext, data.ext$or == 1)
 
-# or = event indicator, TRUE (1) = event
-fit_cTTR <- survfit(Surv(months(data.res$ttr), data.res$or) ~ 1, 
-                    data = data.res) 
+# Estimand 1
 
-# Table 5, row 5
+data.res <- subset(data.anp.ext, data.ext$or == 1)
+
+# or=event indicator, TRUE (1)=event
+fit_cTTR <- survfit(Surv(data.res$ttr, data.res$or) ~ 1, data = data.res) 
+
 surv_median(fit_cTTR)
-
-# Table 5, row 6
 surv_summary(fit_cTTR)
 
 # KM plot cTTR (Figure 3)
@@ -368,12 +526,14 @@ ggsurvplot(fit_cTTR, data = data.res,
 For this analysis we set the censoring date to the maximum follow-up date observed in the study for patients with progression prior to achieving response. 
 
 ```{r, TTR_censor_last_visit, message = FALSE, warning = FALSE}
+
 # --------------------------------------------------------------
 # Alternative time to response 
 # --------------------------------------------------------------
 
+# Estimand 2
 # or = event indicator, TRUE (1) = event
-fit_cTTR_TP <- survfit(Surv(months(sttr), or) ~ 1, data = data.ext) 
+fit_cTTR_TP <- survfit(Surv(sttr, or) ~ 1, data = data.ext) 
 
 ggsurvplot(fit_cTTR_TP, data = data, risk.table = TRUE,
            title = "Time to Response (censor at last visit, responders only)",
@@ -381,10 +541,7 @@ ggsurvplot(fit_cTTR_TP, data = data, risk.table = TRUE,
            xlab = "Months from start of treatment",
            legend.title = "")
 
-# Table 5, row 7
 surv_median(fit_cTTR_TP)
-
-# Table 5, row 8
 surv_summary(fit_cTTR_TP)
 ```
 
@@ -397,8 +554,8 @@ Cumulative incidence function (months). In the figure below, event = 1 represent
 # Cumulative incidence function (cmprsk package)
 # --------------------------------------------------------------
 
-# Table 5, row 9
-fit_CIF <- cmprsk::cuminc(ftime = months(ttr), fstatus = ttr.status)
+# Estimand 3
+fit_CIF <- cmprsk::cuminc(ftime = ttr, fstatus = ttr.status)
 
 z6 <- timepoints(fit_CIF, times = c(6))
 z6cil <- z6$est - sqrt(z6$var) * (-qnorm(.025))
@@ -407,15 +564,17 @@ c("response (95% CI):", 1 - round(c(z6$est[1], z6cil[1], z6ciu[1]), 3))
 
 # CIF plot
 cif <- ggcompetingrisks(fit_CIF, conf.int = FALSE, multiple_panels = FALSE,
-                 title = "Time to response (CIF, all patients)", 
-                 palette = "jco", xlab = "Months from start of treatment")
-cif2 <- cif + scale_color_manual(name = "Event", values = c(1, 2),
-                                labels = c("Response", 
-                                           "Progression without response"))
+                 title = "Time to response (CIF, all patients)", palette = "jco",
+                 xlab = "Months from start of treatment")
+
+cif2 <-cif + 
+       scale_color_manual(name = "Event", values = c(1, 2),
+                          labels = c("Response", "Progression without response"))
+
 ggpar(cif2, xlim = c(0, 9.5), xticks.by = 1)
 ```
 
-# Swimmer plot
+# 6 Swimmer plot
 
 ```{r, swimmer_plot, message = FALSE, warning = FALSE}
 # --------------------------------------------------------------
@@ -424,23 +583,18 @@ ggpar(cif2, xlim = c(0, 9.5), xticks.by = 1)
 
 # Figure 4
 # Response continues at study end (no progression)
-data.ext$cont <- ifelse(data.ext$any.pd == FALSE, data.ext$ttp, NA)
-
-# Progression at study end
-data.ext$prog <- ifelse(data.ext$any.pd == TRUE, data.ext$ttp, NA)
-data.ext$Progression <- ifelse(data.ext$any.pd == TRUE, "Progression", NA)
+data.ext$cont <- ifelse(data.ext$any.pd == FALSE & data.ext$any.anp == FALSE, data.ext$ttp, NA)
 
 follow_p <- swimmer_plot(df = data.ext, id = 'ID', end = 'last', width = .85, 
                          name_fill = 'bor')
 
-resp <- follow_p + swimmer_lines(df_lines = data.ext, id = 'ID', 
-                                 start = 'ttr', end = 'ttp', size = 1, 
-                                 col = c("black"))  +
+resp <- follow_p + swimmer_lines(df_lines = data.ext, id = 'ID', start = 'ttr',
+                                 end = 'ttp', size = 1, col = c("black"))  +
   
   swimmer_points(df_points=data.ext, id = 'ID', time = 'prog', size = 2.5,
                  fill = 'white', col = 'black', name_shape = "Progression") +
   
-  scale_y_continuous(name = "Time since start of treatment (cycles)",
+  scale_y_continuous(name = "Months from start of treatment",
                      breaks = c(0, 2, 4, 6, 8, 10, 13, 16, 19, 22)) +
   
   swimmer_arrows(df_arrows = data.ext, id = 'ID', arrow_start = 'cont',
@@ -453,16 +607,16 @@ resp <- follow_p + swimmer_lines(df_lines = data.ext, id = 'ID',
                                "PD" = '#e41a1c')) +
   
   scale_color_manual(name = "Best overall response", 
-                    values = c("CR" = "#4daf4a",
+                    values=c("CR" = "#4daf4a",
                              "PR" = "#377eb8",
                              "SD" = 'orange',
                              "PD" = '#e41a1c')) +
   
-  scale_shape_manual(name = "End of follow-up", values = c(Progression = 21),
-                     breaks = c('Progression')) +
+  swimmer_points(df_points=data.ext,id='ID',time='EoFUP.time',
+                 name_shape ='EoFUP',size=2.5,fill='white',col='black') +
   
   annotate("text", x = 3.5, y = 28.45, 
-           label = "Continued response", size = 3.25) +
+           label = "Continued follow-up", size = 3.25) +
   
   annotate("text", x = 2.5, y = 28.25, 
            label = sprintf('\u2192'), size = 8.25) +
